@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: leadhunter-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-leadhunter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leadhunter_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-leadhunter}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leadhunter} -d ${POSTGRES_DB:-leadhunter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: leadhunter-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-leadhunter}:${POSTGRES_PASSWORD:-leadhunter_secret}@db:5432/${POSTGRES_DB:-leadhunter}
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  migrate:
+    build: .
+    container_name: leadhunter-migrate
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-leadhunter}:${POSTGRES_PASSWORD:-leadhunter_secret}@db:5432/${POSTGRES_DB:-leadhunter}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - tools
+    command: alembic upgrade head
+
+volumes:
+  postgres_data:

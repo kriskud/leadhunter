@@ -1,0 +1,7 @@
+{
+  "private_practice": 5,
+  "no_online_booking": 5,
+  "telegram_booking": 3,
+  "staff_over_5": -10,
+  "has_altegio": -10
+}
