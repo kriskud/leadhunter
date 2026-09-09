@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     postgres_db: str = "leadhunter"
     database_url: str | None = None
 
+    dgis_api_key: str = ""
+
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_default_model: str = "anthropic/claude-3.5-sonnet"

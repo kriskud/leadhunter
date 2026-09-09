@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import settings
 from app.database.base import LeadStatus
 from app.database.models import Lead
+from app.collector.filters import excluded_by_stopword
 from app.database.session import async_session_factory
-from app.scorer import load_scoring_rules
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +43,6 @@ class ScrapedLead:
 def _build_search_url(category: str, city: str) -> str:
     query = quote_plus(f"{category} {city}")
     return f"https://www.google.com/maps/search/{query}"
-
-
-def _excluded_by_stopword(name: str) -> str | None:
-    """Return the matched stopword if the business name marks a non-target org."""
-    name_lower = name.lower()
-    for word in load_scoring_rules().get("collect_name_stopwords", []):
-        if word.lower() in name_lower:
-            return word
-    return None
 
 
 def _name_from_place_url(url: str) -> str | None:
@@ -204,7 +195,7 @@ async def _scrape_places(page: Page, place_links: list[str]) -> list[ScrapedLead
     for index, link in enumerate(place_links, start=1):
         url_name = _name_from_place_url(link)
         if url_name:
-            stopword = _excluded_by_stopword(url_name)
+            stopword = excluded_by_stopword(url_name)
             if stopword:
                 logger.info(
                     "Skipping place %d/%d %r — stopword %r",
@@ -287,9 +278,8 @@ async def _persist_leads(
     if not scraped:
         return []
 
-    existing = await session.execute(
-        select(Lead).where(Lead.source == SOURCE, Lead.city == city)
-    )
+    # Дедуп по всем источникам: тот же косметолог мог прийти из 2GIS
+    existing = await session.execute(select(Lead).where(Lead.city == city))
     existing_keys = {
         _lead_key(lead.name, lead.phone, city)
         for lead in existing.scalars().all()
@@ -299,7 +289,7 @@ async def _persist_leads(
     skipped = 0
 
     for item in scraped:
-        stopword = _excluded_by_stopword(item.name)
+        stopword = excluded_by_stopword(item.name)
         if stopword:
             skipped += 1
             logger.info("Skipping lead %r — stopword %r", item.name, stopword)
