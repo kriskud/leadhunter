@@ -1,7 +1,63 @@
 {
-  "private_practice": 5,
-  "no_online_booking": 5,
-  "telegram_booking": 3,
-  "staff_over_5": -10,
-  "has_altegio": -10
+  "has_website": 8,
+  "has_phone": 1,
+  "private_practice": 15,
+  "no_online_booking": 3,
+  "telegram_booking": 10,
+  "has_whatsapp": 5,
+  "has_telegram": 5,
+  "gmail_email": 1,
+  "only_social_links": 10,
+
+  "staff_over_5": -20,
+  "has_altegio": -15,
+
+  "category_bonuses": {
+    "косметолог": 15,
+    "эстетист": 8
+  },
+  "category_penalties": {
+    "клиника": -20,
+    "стоматология": -20,
+    "центр": -15,
+    "салон": -15,
+    "опт": -20,
+    "b2b": -20
+  },
+
+  "name_bonuses": {
+    "косметолог": 8,
+    "кабинет": 10,
+    "частн": 10
+  },
+  "name_penalties": {
+    "клиник": -25,
+    "clinic": -25,
+    "медицин": -20,
+    "стоматолог": -25,
+    "центр": -20,
+    "салон": -15,
+    "студия": -8,
+    "сеть": -15,
+    "филиал": -15,
+    "институт": -20,
+    "академи": -15,
+    "обучени": -20,
+    "коворкинг": -15,
+    "лазер": -10
+  },
+
+  "collect_name_stopwords": [
+    "клиник",
+    "clinic",
+    "медицин",
+    "стоматолог",
+    "центр",
+    "салон",
+    "институт",
+    "академи",
+    "обучени"
+  ],
+
+  "min_score_threshold": 20
 }

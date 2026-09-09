@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote_plus
 
 from playwright.async_api import Browser, Page, async_playwright
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from app.config.settings import settings
 from app.database.base import LeadStatus
 from app.database.models import Lead
 from app.database.session import async_session_factory
+from app.scorer import load_scoring_rules
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,20 @@ class ScrapedLead:
 def _build_search_url(category: str, city: str) -> str:
     query = quote_plus(f"{category} {city}")
     return f"https://www.google.com/maps/search/{query}"
+
+
+def _excluded_by_stopword(name: str) -> str | None:
+    """Return the matched stopword if the business name marks a non-target org."""
+    name_lower = name.lower()
+    for word in load_scoring_rules().get("collect_name_stopwords", []):
+        if word.lower() in name_lower:
+            return word
+    return None
+
+
+def _name_from_place_url(url: str) -> str | None:
+    match = re.search(r"/maps/place/([^/]+)", url)
+    return unquote_plus(match.group(1)) if match else None
 
 
 def _normalize_phone(raw: str | None) -> str | None:
@@ -187,6 +202,16 @@ async def _scrape_places(page: Page, place_links: list[str]) -> list[ScrapedLead
     leads: list[ScrapedLead] = []
 
     for index, link in enumerate(place_links, start=1):
+        url_name = _name_from_place_url(link)
+        if url_name:
+            stopword = _excluded_by_stopword(url_name)
+            if stopword:
+                logger.info(
+                    "Skipping place %d/%d %r — stopword %r",
+                    index, len(place_links), url_name, stopword,
+                )
+                continue
+
         logger.info("Scraping place %d/%d", index, len(place_links))
         try:
             await page.goto(link, wait_until="domcontentloaded", timeout=30_000)
@@ -274,6 +299,12 @@ async def _persist_leads(
     skipped = 0
 
     for item in scraped:
+        stopword = _excluded_by_stopword(item.name)
+        if stopword:
+            skipped += 1
+            logger.info("Skipping lead %r — stopword %r", item.name, stopword)
+            continue
+
         key = _lead_key(item.name, item.phone, city)
         if key in existing_keys:
             skipped += 1
