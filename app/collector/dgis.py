@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "2gis"
 API_BASE = "https://catalog.api.2gis.com"
-PAGE_SIZE = 50
+PAGE_SIZE = 10  # максимум для Places API: page_size от 1 до 10
+MAX_PAGES = 5  # и page от 1 до 5 → не больше 50 мест на запрос
 ITEM_FIELDS = "items.contact_groups,items.org,items.address,items.rubrics"
 
 
@@ -105,7 +106,13 @@ async def _fetch_items(category: str, region_id: str, limit: int, client: httpx.
         items.extend(batch)
         total = int(result.get("total", 0))
         logger.info("Fetched page %d: %d items (total available: %d)", page, len(batch), total)
-        if page * PAGE_SIZE >= total:
+        if len(items) >= total:
+            break
+        if page >= MAX_PAGES:
+            logger.warning(
+                "Достигнут лимит API (%d страниц): получено %d из %d доступных",
+                MAX_PAGES, len(items), total,
+            )
             break
         page += 1
     return items[:limit]
