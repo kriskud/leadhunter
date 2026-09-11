@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadHunter — лиды</title>
+<style>
+  :root {
+    --bg: #14100f; --panel: #1e1817; --border: #352b28;
+    --text: #ece5e2; --muted: #9c8d88; --accent: #e05c4b; --accent-soft: #3a2320;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+
+  .filters {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; margin-bottom: 16px;
+  }
+  .filters input, .filters select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font: inherit;
+  }
+  .filters input:focus, .filters select:focus { outline: 1px solid var(--accent); }
+  .filters input[type="number"] { width: 90px; }
+  .filters .grow { flex: 1; min-width: 160px; }
+  .filters button {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer;
+  }
+  .filters button:hover { color: var(--text); border-color: var(--muted); }
+
+  .count { color: var(--muted); margin: 0 0 8px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--panel); }
+  td a { color: var(--accent); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .score { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 99px;
+    font-size: 11px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  }
+  .badge.SCORED { color: #7fc98a; border-color: #2c4230; }
+  .badge.REJECTED { color: #c96f6f; border-color: #4a2a2a; }
+  .badge.NEW { color: #c9b26f; border-color: #453d24; }
+  tr.details td {
+    background: var(--accent-soft); cursor: default; color: var(--muted);
+    font-size: 13px; padding: 10px 14px;
+  }
+  tr.details b { color: var(--text); font-weight: 500; }
+
+  .pager { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  .pager button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer;
+  }
+  .pager button:disabled { opacity: .35; cursor: default; }
+  .pager span { color: var(--muted); }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LeadHunter</h1>
+  <p class="sub">Лиды из базы на 26s · сортировка по score</p>
+
+  <div class="filters">
+    <input class="grow" id="q" type="search" placeholder="Поиск по имени…">
+    <select id="city"><option value="">Все города</option></select>
+    <select id="category"><option value="">Все категории</option></select>
+    <select id="status"><option value="">Все статусы</option></select>
+    <input id="min_score" type="number" step="0.5" placeholder="score ≥">
+    <select id="sort">
+      <option value="score">по score</option>
+      <option value="created_at">по дате</option>
+    </select>
+    <button id="reset">Сброс</button>
+  </div>
+
+  <p class="count" id="count"></p>
+  <table>
+    <thead><tr>
+      <th>Имя</th><th>Город</th><th>Телефон</th><th>Сайт</th>
+      <th>Score</th><th>Статус</th><th>Добавлен</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>Ничего не найдено</div>
+
+  <div class="pager">
+    <button id="prev">← Назад</button>
+    <span id="page"></span>
+    <button id="next">Вперёд →</button>
+  </div>
+</div>
+
+<script>
+const API = "/api/v1/leads";
+const PAGE_SIZE = 50;
+let page = 0, total = 0;
+
+const $ = (id) => document.getElementById(id);
+const filterIds = ["q", "city", "category", "status", "min_score", "sort"];
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("ru-RU",
+  { day: "numeric", month: "short", year: "numeric" });
+
+const hostname = (url) => {
+  try { return new URL(url).hostname; } catch { return url; }
+};
+
+async function loadFacets() {
+  const f = await fetch(API + "/facets").then((r) => r.json());
+  const fill = (id, values) => {
+    for (const v of values) {
+      const o = document.createElement("option");
+      o.value = o.textContent = v;
+      $(id).appendChild(o);
+    }
+  };
+  fill("city", f.cities); fill("category", f.categories); fill("status", f.statuses);
+}
+
+function params() {
+  const p = new URLSearchParams({ skip: page * PAGE_SIZE, limit: PAGE_SIZE });
+  for (const id of filterIds) {
+    const v = $(id).value.trim();
+    if (v) p.set(id, v);
+  }
+  return p;
+}
+
+async function load() {
+  const data = await fetch(API + "?" + params()).then((r) => r.json());
+  total = data.total;
+  const rows = $("rows");
+  rows.innerHTML = "";
+  $("empty").hidden = data.items.length > 0;
+
+  for (const l of data.items) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(l.name)}</td>
+      <td>${esc(l.city ?? "—")}</td>
+      <td>${esc(l.phone ?? "—")}</td>
+      <td>${l.website ? `<a href="${esc(l.website)}" target="_blank" rel="noopener">${esc(hostname(l.website))}</a>` : "—"}</td>
+      <td class="score">${l.score ?? "—"}</td>
+      <td><span class="badge ${esc(l.status)}">${esc(l.status)}</span></td>
+      <td>${fmtDate(l.created_at)}</td>`;
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      const next = tr.nextElementSibling;
+      if (next?.classList.contains("details")) { next.remove(); return; }
+      rows.querySelectorAll("tr.details").forEach((d) => d.remove());
+      const d = document.createElement("tr");
+      d.className = "details";
+      d.innerHTML = `<td colspan="7">
+        <b>#${l.id}</b> · категория: <b>${esc(l.category ?? "—")}</b>
+        · источник: <b>${esc(l.source ?? "—")}</b>
+        · обновлён: <b>${fmtDate(l.updated_at)}</b>
+        ${l.website ? ` · <a href="${esc(l.website)}" target="_blank" rel="noopener">${esc(l.website)}</a>` : ""}</td>`;
+      tr.after(d);
+    });
+    rows.appendChild(tr);
+  }
+
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  $("count").textContent = `Всего: ${total}` + (pages > 1 ? ` · показаны ${page * PAGE_SIZE + 1}–${page * PAGE_SIZE + data.items.length}` : "");
+  $("page").textContent = `${page + 1} / ${pages}`;
+  $("prev").disabled = page === 0;
+  $("next").disabled = page >= pages - 1;
+}
+
+let debounce;
+for (const id of filterIds) {
+  $(id).addEventListener("input", () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => { page = 0; load(); }, id === "q" ? 300 : 0);
+  });
+}
+$("reset").addEventListener("click", () => {
+  for (const id of filterIds) $(id).value = id === "sort" ? "score" : "";
+  page = 0; load();
+});
+$("prev").addEventListener("click", () => { page--; load(); });
+$("next").addEventListener("click", () => { page++; load(); });
+
+loadFacets().then(load).catch((e) => { $("count").textContent = "Ошибка загрузки: " + e; });
+</script>
+</body>
+</html>
